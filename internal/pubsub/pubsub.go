@@ -29,6 +29,10 @@ import (
 	gax "github.com/googleapis/gax-go"
 )
 
+// MaxHandlers is the value used to initialize new batchers.
+// This is only a hack being used for the benchmark fork.
+var MaxHandlers int = 1
+
 // Message contains data to be published.
 type Message struct {
 	// Body contains the content of the message.
@@ -142,8 +146,7 @@ func NewTopic(d driver.Topic) *Topic {
 			return d.SendBatch(callCtx, dms)
 		})
 	}
-	maxHandlers := 1
-	b := batcher.New(reflect.TypeOf(&Message{}), maxHandlers, handler)
+	b := batcher.New(reflect.TypeOf(&Message{}), MaxHandlers, handler)
 	t := &Topic{
 		driver:  d,
 		batcher: b,
@@ -267,8 +270,7 @@ func NewSubscription(d driver.Subscription) *Subscription {
 			return d.SendAcks(callCtx, ids)
 		})
 	}
-	const maxHandlers = 1
-	ab := batcher.New(reflect.TypeOf([]driver.AckID{}).Elem(), maxHandlers, handler)
+	ab := batcher.New(reflect.TypeOf([]driver.AckID{}).Elem(), MaxHandlers, handler)
 	return &Subscription{
 		driver:     d,
 		ackBatcher: ab,
