@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/go-cloud/internal/pubsub"
+	"golang.org/x/sync/errgroup"
 
 	"errors"
 	"os"
@@ -22,7 +23,8 @@ import (
 	"github.com/streadway/amqp"
 )
 
-var n = flag.Int("n", 100, "number of messages to send and receive")
+var n = flag.Int("n", 100, "number of messages to send and receive per goroutine")
+var ng = flag.Int("ng", 100, "number of goroutines")
 var env = flag.String("p", "mem", "pubsub provider to use [mem|gcp|rabbit]")
 var topicName = flag.String("topic", "test-topic", "name of the topic to use")
 var subName = flag.String("sub", "test-subscription-1", "name of the subscription to use")
@@ -32,7 +34,6 @@ var check = flag.Bool("check", false, "whether to check that all the sent messag
 
 func main() {
 	flag.Parse()
-
 	if err := bench(); err != nil {
 		fmt.Fprintf(os.Stderr, "pubsubbench: %v\n", err)
 		os.Exit(1)
@@ -54,52 +55,53 @@ func bench() error {
 			if *verbose {
 				log.Printf("Sending %d messages to topic %q", *n, *topicName)
 			}
-			for i := 1; i <= *n; i++ {
-				bod := fmt.Sprintf("%d", i)
-				m := &pubsub.Message{Body: []byte(bod)}
-				if err := top.Send(ctx, m); err != nil {
-					return fmt.Errorf("failed to send message %d of %d: %v", i, *n, err)
-				}
+			var eg errgroup.Group
+			for g := 0; g < *ng; g++ {
+				eg.Go(func() error {
+					for i := 1; i <= *n; i++ {
+						bod := fmt.Sprintf("%d", i)
+						m := &pubsub.Message{Body: []byte(bod)}
+						if err := top.Send(ctx, m); err != nil {
+							return fmt.Errorf("failed to send message %d of %d: %v", i, *n, err)
+						}
+					}
+					return nil
+				})
 			}
-			return nil
+			return eg.Wait()
 		})
 		if err != nil {
 			return err
 		}
 
 		receiveDt, err := timeFunc(func() error {
+			defer cleanup()
 			if *verbose {
 				log.Printf("Receiving %d messages", *n)
 			}
-			counts := map[string]int{}
-			for i := 1; i <= *n; i++ {
-				m, err := sub.Receive(ctx)
-				if err != nil {
-					return fmt.Errorf("failed to receive message %d of %d: %v", i, *n, err)
-				}
-				counts[string(m.Body)]++
-				m.Ack()
-			}
-
-			if *check {
-				for i := 1; i <= *n; i++ {
-					bod := fmt.Sprintf("%d", i)
-					if counts[bod] == 0 {
-						return fmt.Errorf("0 instances of '%s' encountered, want at least 1", bod)
+			var eg errgroup.Group
+			for g := 0; g < *ng; g++ {
+				eg.Go(func() error {
+					for i := 1; i <= *n; i++ {
+						m, err := sub.Receive(ctx)
+						if err != nil {
+							return fmt.Errorf("failed to receive message %d of %d: %v", i, *n, err)
+						}
+						m.Ack()
 					}
-				}
+					return nil
+				})
 			}
-
-			cleanup()
-			return nil
+			return eg.Wait()
 		})
 		if err != nil {
 			return err
 		}
 
-		smps := float64(*n) / sendDt.Seconds()
-		rmps := float64(*n) / receiveDt.Seconds()
-		rtmps := float64(*n) / (sendDt.Seconds() + receiveDt.Seconds())
+		nm := float64(*n * *ng)
+		smps := nm / sendDt.Seconds()
+		rmps := nm / receiveDt.Seconds()
+		rtmps := nm / (sendDt.Seconds() + receiveDt.Seconds())
 		fmt.Fprintf(w, "%d\t%7.3f\t%7.3f\t%7.3f\n", mh, smps, rmps, rtmps)
 	}
 	w.Flush()
