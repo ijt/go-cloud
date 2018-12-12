@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"text/tabwriter"
 	"time"
 
 	"github.com/google/go-cloud/internal/pubsub"
@@ -39,6 +40,8 @@ func main() {
 }
 
 func bench() error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.AlignRight|tabwriter.Debug)
+	fmt.Fprintln(w, "max handlers\tmsgs/sec sending\tmsgs/sec recv\tmsgs/sec round trip")
 	for mh := 1; mh <= *mmh; mh++ {
 		pubsub.MaxHandlers = mh
 		var ctx = context.Background()
@@ -47,48 +50,68 @@ func bench() error {
 			return err
 		}
 
-		t0 := time.Now()
-
-		if *verbose {
-			log.Printf("Sending %d messages to topic %q", *n, *topicName)
-		}
-		for i := 1; i <= *n; i++ {
-			bod := fmt.Sprintf("%d", i)
-			m := &pubsub.Message{Body: []byte(bod)}
-			if err := top.Send(ctx, m); err != nil {
-				return fmt.Errorf("failed to send message %d of %d: %v", i, *n, err)
+		sendDt, err := timeFunc(func() error {
+			if *verbose {
+				log.Printf("Sending %d messages to topic %q", *n, *topicName)
 			}
-		}
-
-		if *verbose {
-			log.Printf("Receiving %d messages", *n)
-		}
-		counts := map[string]int{}
-		for i := 1; i <= *n; i++ {
-			m, err := sub.Receive(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to receive message %d of %d: %v", i, *n, err)
-			}
-			counts[string(m.Body)]++
-			m.Ack()
-		}
-
-		// Check
-		if *check {
 			for i := 1; i <= *n; i++ {
 				bod := fmt.Sprintf("%d", i)
-				if counts[bod] == 0 {
-					return fmt.Errorf("0 instances of '%s' encountered, want at least 1", bod)
+				m := &pubsub.Message{Body: []byte(bod)}
+				if err := top.Send(ctx, m); err != nil {
+					return fmt.Errorf("failed to send message %d of %d: %v", i, *n, err)
 				}
 			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 
-		cleanup()
+		receiveDt, err := timeFunc(func() error {
+			if *verbose {
+				log.Printf("Receiving %d messages", *n)
+			}
+			counts := map[string]int{}
+			for i := 1; i <= *n; i++ {
+				m, err := sub.Receive(ctx)
+				if err != nil {
+					return fmt.Errorf("failed to receive message %d of %d: %v", i, *n, err)
+				}
+				counts[string(m.Body)]++
+				m.Ack()
+			}
 
-		dt := time.Now().Sub(t0)
-		fmt.Printf("%d %v\n", mh, dt)
+			if *check {
+				for i := 1; i <= *n; i++ {
+					bod := fmt.Sprintf("%d", i)
+					if counts[bod] == 0 {
+						return fmt.Errorf("0 instances of '%s' encountered, want at least 1", bod)
+					}
+				}
+			}
+
+			cleanup()
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		smps := float64(*n) / sendDt.Seconds()
+		rmps := float64(*n) / receiveDt.Seconds()
+		rtmps := float64(*n) / (sendDt.Seconds() + receiveDt.Seconds())
+		fmt.Fprintf(w, "%d\t%7.3f\t%7.3f\t%7.3f\n", mh, smps, rmps, rtmps)
 	}
+	w.Flush()
 	return nil
+}
+
+// timeFunc times how long it takes to run the given function.
+func timeFunc(f func() error) (time.Duration, error) {
+	t0 := time.Now()
+	err := f()
+	dt := time.Now().Sub(t0)
+	return dt, err
 }
 
 func openTopicAndSub(env string) (top *pubsub.Topic, sub *pubsub.Subscription, cleanup func(), err error) {
