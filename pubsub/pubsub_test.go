@@ -17,6 +17,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gocloud.dev/internal/batcher"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -73,6 +75,11 @@ func (s *driverSub) ReceiveBatch(ctx context.Context, maxMessages int) ([]*drive
 		default:
 		}
 	}
+}
+
+func (s *driverSub) AckBatcher(t reflect.Type, handler func(items interface{}) error) driver.Batcher {
+	maxHandlers := 1
+	return batcher.New(t, maxHandlers, handler)
 }
 
 func (s *driverSub) grabQueue(maxMessages int) []*driver.Message {
@@ -231,6 +238,11 @@ func (b blockingDriverSub) ReceiveBatch(ctx context.Context, maxMessages int) ([
 	return nil, ctx.Err()
 }
 
+func (s blockingDriverSub) AckBatcher(t reflect.Type, handler func(items interface{}) error) driver.Batcher {
+	maxHandlers := 1
+	return batcher.New(t, maxHandlers, handler)
+}
+
 func TestCancelTwoReceives(t *testing.T) {
 	// We want to create the following situation:
 	// 1. Goroutine 1 calls Receive, obtains the lock (Subscription.mu),
@@ -313,14 +325,19 @@ type failSub struct {
 	calls int
 }
 
-func (t *failSub) ReceiveBatch(ctx context.Context, maxMessages int) ([]*driver.Message, error) {
-	t.calls++
-	if t.calls <= nRetryCalls {
+func (s *failSub) ReceiveBatch(ctx context.Context, maxMessages int) ([]*driver.Message, error) {
+	s.calls++
+	if s.calls <= nRetryCalls {
 		return nil, errRetry
 	}
 	return []*driver.Message{{Body: []byte("")}}, nil
 }
 
-func (t *failSub) IsRetryable(err error) bool { return isRetryable(err) }
+func (s *failSub) IsRetryable(err error) bool { return isRetryable(err) }
+
+func (s *failSub) AckBatcher(t reflect.Type, handler func(items interface{}) error) driver.Batcher {
+	maxHandlers := 1
+	return batcher.New(t, maxHandlers, handler)
+}
 
 // TODO(jba): add a test for retry of SendAcks.

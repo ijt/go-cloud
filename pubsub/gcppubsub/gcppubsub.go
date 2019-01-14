@@ -23,6 +23,8 @@ package gcppubsub // import "gocloud.dev/pubsub/gcppubsub"
 import (
 	"context"
 	"fmt"
+	"gocloud.dev/internal/batcher"
+	"reflect"
 
 	raw "cloud.google.com/go/pubsub/apiv1"
 	"gocloud.dev/gcp"
@@ -162,6 +164,12 @@ func (s *subscription) ReceiveBatch(ctx context.Context, maxMessages int) ([]*dr
 		ms = append(ms, m)
 	}
 	return ms, nil
+}
+
+// AckBatcher implements driver.Subscription.AckBatcher
+func (s *subscription) AckBatcher(t reflect.Type, handler func(items interface{}) error) driver.Batcher {
+	maxHandlers := 1
+	return batcher.New(t, maxHandlers, handler)
 }
 
 // SendAcks implements driver.Subscription.SendAcks.

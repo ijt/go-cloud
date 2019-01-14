@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gocloud.dev/internal/batcher"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -421,6 +423,12 @@ func (s *subscription) ReceiveBatch(ctx context.Context, maxMessages int) ([]*dr
 			return ms, nil
 		}
 	}
+}
+
+// AckBatcher implements driver.Subscription.AckBatcher
+func (s *subscription) AckBatcher(t reflect.Type, handler func(items interface{}) error) driver.Batcher {
+	maxHandlers := 1
+	return batcher.New(t, maxHandlers, handler)
 }
 
 // toMessage converts an amqp.Delivery (a received message) to a driver.Message.

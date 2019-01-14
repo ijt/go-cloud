@@ -18,6 +18,7 @@ package driver // import "gocloud.dev/pubsub/driver"
 
 import (
 	"context"
+	"reflect"
 )
 
 // Batcher should gather items into batches to be sent to the pubsub service.
@@ -119,6 +120,11 @@ type Subscription interface {
 	//
 	// SendAcks should be safe for concurrent access from multiple goroutines.
 	SendAcks(ctx context.Context, ackIDs []AckID) error
+
+	// AckBatcher should return a batcher that sends message acknowledgements
+	// back to the provider, given the type of the items (acks) and a handler
+	// that takes a slice of acks and sends them to the provider.
+	AckBatcher(itemType reflect.Type, handler func(items interface{}) error) Batcher
 
 	// IsRetryable should report whether err can be retried.
 	// err will always be a non-nil error returned from ReceiveBatch or SendAcks.

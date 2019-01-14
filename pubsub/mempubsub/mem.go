@@ -22,6 +22,8 @@ package mempubsub // import "gocloud.dev/pubsub/mempubsub"
 import (
 	"context"
 	"errors"
+	"gocloud.dev/internal/batcher"
+	"reflect"
 	"sync"
 	"time"
 
@@ -171,6 +173,12 @@ func (s *subscription) ReceiveBatch(ctx context.Context, maxMessages int) ([]*dr
 		case <-time.After(pollDuration):
 		}
 	}
+}
+
+// AckBatcher implements driver.Subscription.AckBatcher
+func (s *subscription) AckBatcher(t reflect.Type, handler func(items interface{}) error) driver.Batcher {
+	maxHandlers := 1
+	return batcher.New(t, maxHandlers, handler)
 }
 
 func (s *subscription) wait(ctx context.Context, dur time.Duration) error {

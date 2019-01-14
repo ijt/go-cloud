@@ -15,6 +15,8 @@ package pubsub_test
 
 import (
 	"context"
+	"gocloud.dev/internal/batcher"
+	"reflect"
 	"testing"
 
 	"gocloud.dev/pubsub"
@@ -36,6 +38,11 @@ func (s *scriptedSub) ReceiveBatch(ctx context.Context, maxMessages int) ([]*dri
 	b := s.batches[s.calls]
 	s.calls++
 	return b, nil
+}
+
+func (s *scriptedSub) AckBatcher(t reflect.Type, handler func(items interface{}) error) driver.Batcher {
+	maxHandlers := 1
+	return batcher.New(t, maxHandlers, handler)
 }
 
 func (s *scriptedSub) SendAcks(ctx context.Context, ackIDs []driver.AckID) error {

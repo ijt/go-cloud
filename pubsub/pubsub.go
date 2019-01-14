@@ -302,7 +302,7 @@ func NewSubscription(d driver.Subscription) *Subscription {
 		}
 		return err
 	}
-	const maxHandlers = 1
-	s.ackBatcher = batcher.New(reflect.TypeOf([]driver.AckID{}).Elem(), maxHandlers, handler)
+	typ := reflect.TypeOf([]driver.AckID{}).Elem()
+	s.ackBatcher = d.AckBatcher(typ, handler)
 	return s
 }
