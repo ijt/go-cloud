@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/google/subcommands"
 	"gocloud.dev/pubsub"
@@ -72,6 +73,10 @@ func (p *pubCmd) pub(ctx context.Context, topicURL string, r io.Reader) error {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if line == "" && strings.HasPrefix(topicURL, "rabbit") {
+			log.Printf("skipping empty message")
+			continue
+		}
 		m := &pubsub.Message{Body: []byte(line)}
 		if err := t.Send(ctx, m); err != nil {
 			return err
